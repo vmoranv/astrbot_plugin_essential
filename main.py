@@ -5,7 +5,7 @@ import logging
 from PIL import Image as PILImage
 from PIL import ImageDraw as PILImageDraw
 from PIL import ImageFont as PILImageFont
-from util.plugin_dev.api.v1 import (
+from astrbot.api.all import (
     AstrMessageEvent,
     CommandResult,
     Context,
