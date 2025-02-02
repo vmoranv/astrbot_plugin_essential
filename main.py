@@ -79,7 +79,7 @@ class Main:
         font = PILImageFont.truetype(path + "/simhei.ttf", 65)
 
         # Calculate the width and height of the text
-        text_width, text_height = draw.textsize(msg, font=font)
+        text_width, text_height = draw.textbbox((0, 0), msg, font=font)[2:4]
 
         # Calculate the starting position of the text to center it.
         x = (img.size[0] - text_width) / 2
