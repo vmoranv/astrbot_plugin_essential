@@ -71,23 +71,32 @@ class Main:
         msg = message.message_str.replace("喜报", "").strip()
         for i in range(20, len(msg), 20):
             msg = msg[:i] + "\n" + msg[i:]
+
         path = os.path.abspath(os.path.dirname(__file__))
         bg = path + "/congrats.jpg"
         img = PILImage.open(bg)
         draw = PILImageDraw.Draw(img)
         font = PILImageFont.truetype(path + "/simhei.ttf", 65)
 
+        # Calculate the width and height of the text
+        text_width, text_height = draw.textsize(msg, font=font)
+
+        # Calculate the starting position of the text to center it.
+        x = (img.size[0] - text_width) / 2
+        y = (img.size[1] - text_height) / 2
+
         draw.text(
-            (img.size[0] / 2 - 65 / 2, img.size[1] / 2 - 65 / 2),
+            (x, y),
             msg,
             font=font,
             fill=(255, 0, 0),
             stroke_width=3,
             stroke_fill=(255, 255, 0),
         )
+
         img.save("congrats_result.jpg")
         return CommandResult().file_image("congrats_result.jpg")
-
+    
     async def get_moe(self, message: AstrMessageEvent, context: Context):
         # uid = message.message_obj.sender.user_id
         shuffle = random.sample(self.moe_urls, len(self.moe_urls))
