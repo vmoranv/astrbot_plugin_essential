@@ -174,22 +174,32 @@ class Main:
                 logger.info(f"获取到 {ip} 的服务器信息。")
 
         # result = await context.image_renderer.render_custom_template(self.mc_html_tmpl, data, return_url=True)
-        motd = ""
-        for i in data["motd"]["clean"]:
-            if isinstance(i, str):
-                motd += "\n" + i.strip()
+        motd = "查询失败"
+        if "motd" in data and isinstance(data["motd"], dict) and isinstance(data["motd"].get("clean"), list):
+            motd_lines = [i.strip() for i in data["motd"]["clean"] if isinstance(i, str) and i.strip()]
+            motd = "\n".join(motd_lines) if motd_lines else "查询失败"
 
+        players = "查询失败"
+        version = "查询失败"
         if "error" in data:
             return CommandResult().error(f"查询失败: {data['error']}")
+
+        if "players" in data:
+            players = f"{data['players']['online']}/{data['players']['max']}"
+
+        if "version" in data:
+            version = str(data['version'])
+
         return (
             CommandResult()
             .message(f"""【查询结果】
-服务器IP: {ip}
-在线玩家: {data['players']['online']}/{data['players']['max']}
-版本: {data['version']}
-MOTD: {motd}""")
+        服务器IP: {ip}
+        在线玩家: {players}
+        版本: {version}
+        MOTD: {motd}""")
             .use_t2i(False)
         )
+
 
     async def hitokoto(self, message: AstrMessageEvent, context: Context):
         url = "https://v1.hitokoto.cn"
