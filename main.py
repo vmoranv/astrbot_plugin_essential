@@ -30,6 +30,7 @@ class Main:
             PLUGIN_NAME, "搜番", "以图搜番", 1, self.get_search_anime
         )
         context.register_commands(PLUGIN_NAME, "喜报", "喜报生成器", 1, self.congrats)
+        context.register_commands(PLUGIN_NAME, "悲报", "悲报生成器", 1, self.uncongrats)
         context.register_commands(PLUGIN_NAME, "mcs", "查mc服务器", 1, self.mcs)
         context.register_commands(PLUGIN_NAME, "一言", "来一条一言", 1, self.hitokoto)
         context.register_commands(
@@ -96,6 +97,36 @@ class Main:
 
         img.save("congrats_result.jpg")
         return CommandResult().file_image("congrats_result.jpg")
+    
+    async def uncongrats(self, message: AstrMessageEvent, context: Context):
+        msg = message.message_str.replace("悲报", "").strip()
+        for i in range(20, len(msg), 20):
+            msg = msg[:i] + "\n" + msg[i:]
+
+        path = os.path.abspath(os.path.dirname(__file__))
+        bg = path + "/uncongrats.jpg"
+        img = PILImage.open(bg)
+        draw = PILImageDraw.Draw(img)
+        font = PILImageFont.truetype(path + "/simhei.ttf", 65)
+
+        # Calculate the width and height of the text
+        text_width, text_height = draw.textbbox((0, 0), msg, font=font)[2:4]
+
+        # Calculate the starting position of the text to center it.
+        x = (img.size[0] - text_width) / 2
+        y = (img.size[1] - text_height) / 2
+
+        draw.text(
+            (x, y),
+            msg,
+            font=font,
+            fill=(0, 0, 0),
+            stroke_width=3,
+            stroke_fill=(255, 255, 255),
+        )
+
+        img.save("uncongrats_result.jpg")
+        return CommandResult().file_image("uncongrats_result.jpg")
     
     async def get_moe(self, message: AstrMessageEvent, context: Context):
         # uid = message.message_obj.sender.user_id
