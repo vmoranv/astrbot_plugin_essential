@@ -6,6 +6,7 @@
 - 以图搜番（https://trace.moe）
 - 随机动漫图片（https://t.mwm.moe/）
 - 喜报
+- 悲报
 
 安装方法：
 ```
@@ -16,6 +17,7 @@ plugin i https://github.com/Soulter/goodplugins
 - `/搜番`**并且**加上图片即可搜番
 - `/moe`即可调用随机动漫图片
 - `/喜报 <你的内容>`
+- `/悲报 <你的内容>`
 - `/mcs`: `/mcs <minecraft服务器地址>`即可查询服务器状态
 - `/一言`即可调用一言
 - `/今天吃什么`：随机选择吃什么
