@@ -1,4 +1,5 @@
 import random
+import asyncio
 import os
 import json
 import datetime
@@ -9,12 +10,15 @@ from PIL import Image as PILImage
 from PIL import ImageDraw as PILImageDraw
 from PIL import ImageFont as PILImageFont
 from astrbot.api.all import AstrMessageEvent, CommandResult, Context, Image, Plain
+import astrbot.api.event.filter as filter
+from astrbot.api.star import register, Star
 
 logger = logging.getLogger("astrbot")
 
-
-class Main:
+@register("astrbot_plugin_essential", "Soulter", "", "", "")
+class Main(Star):
     def __init__(self, context: Context) -> None:
+        super().__init__(context)
         self.PLUGIN_NAME = "astrbot_plugin_essential"
         PLUGIN_NAME = self.PLUGIN_NAME
         path = os.path.abspath(os.path.dirname(__file__))
@@ -24,30 +28,6 @@ class Main:
         self.what_to_eat_data: list = json.loads(
             open(path + "/resources/food.json", "r", encoding="utf-8").read()
         )["data"]
-
-        context.register_commands(PLUGIN_NAME, "moe", "随机动漫图片", 1, self.get_moe)
-        context.register_commands(
-            PLUGIN_NAME, "搜番", "以图搜番", 1, self.get_search_anime
-        )
-        context.register_commands(PLUGIN_NAME, "喜报", "喜报生成器", 1, self.congrats)
-        context.register_commands(PLUGIN_NAME, "悲报", "悲报生成器", 1, self.uncongrats)
-        context.register_commands(PLUGIN_NAME, "mcs", "查mc服务器", 1, self.mcs)
-        context.register_commands(PLUGIN_NAME, "一言", "来一条一言", 1, self.hitokoto)
-        context.register_commands(
-            PLUGIN_NAME, "今天吃什么", "今天吃什么", 1, self.what_to_eat
-        )
-        context.register_commands(
-            PLUGIN_NAME, "喜加一", "EPIC 喜加一", 1, self.epic_free_game
-        )
-        context.register_commands(
-            PLUGIN_NAME,
-            r"^(早安|晚安)",
-            "和Bot说早晚安，记录睡眠时间，培养良好作息",
-            1,
-            self.good_morning,
-            use_regex=True,
-            ignore_prefix=True,
-        )
 
         if not os.path.exists(f"data/{PLUGIN_NAME}_data.json"):
             with open(f"data/{PLUGIN_NAME}_data.json", "w", encoding="utf-8") as f:
@@ -63,12 +43,74 @@ class Main:
             "https://www.loliapi.com/acg/",
             "https://www.loliapi.com/acg/pc/",
         ]
+        
+        self.search_anmime_demand_users = {}
 
     def time_convert(self, t):
         m, s = divmod(t, 60)
         return f"{int(m)}分{int(s)}秒"
+    
+    @filter.event_message_type(filter.EventMessageType.ALL)
+    async def handle_search_anime(self, message: AstrMessageEvent):
+        '''检查是否有搜番请求'''
+        sender = message.get_sender_id()
+        if sender in self.search_anmime_demand_users:
+            message_obj = message.message_obj
+            url = "https://api.trace.moe/search?anilistInfo&url="
+            image_obj = None
+            for i in message_obj.message:
+                if isinstance(i, Image):
+                    image_obj = i
+                    break
+            try:
+                try:
+                    # 需要经过url encode
+                    image_url = urllib.parse.quote(image_obj.url)
+                    url += image_url
+                except BaseException as _:
+                    if sender in self.search_anmime_demand_users:
+                        del self.search_anmime_demand_users[sender]
+                    return CommandResult().error(
+                        f"发现不受本插件支持的图片数据：{type(image_obj)}，插件无法解析。"
+                    )
 
-    async def congrats(self, message: AstrMessageEvent, context: Context):
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(url) as resp:
+                        if resp.status != 200:
+                            if sender in self.search_anmime_demand_users:
+                                del self.search_anmime_demand_users[sender]
+                            return CommandResult().error("请求失败")
+                        data = await resp.json()
+
+                if data["result"] and len(data["result"]) > 0:
+                    # 番剧时间转换为x分x秒
+                    data["result"][0]["from"] = self.time_convert(data["result"][0]["from"])
+                    data["result"][0]["to"] = self.time_convert(data["result"][0]["to"])
+
+                    warn = ""
+                    if float(data["result"][0]["similarity"]) < 0.8:
+                        warn = "相似度过低，可能不是同一番剧。建议：相同尺寸大小的截图; 去除四周的黑边\n\n"
+                    if sender in self.search_anmime_demand_users:
+                        del self.search_anmime_demand_users[sender]
+                    return CommandResult(
+                        chain=[
+                            Plain(
+                                f"{warn}番名: {data['result'][0]['anilist']['title']['native']}\n相似度: {data['result'][0]['similarity']}\n剧集: 第{data['result'][0]['episode']}集\n时间: {data['result'][0]['from']} - {data['result'][0]['to']}\n精准空降截图:"
+                            ),
+                            Image.fromURL(data["result"][0]["image"]),
+                        ],
+                        use_t2i_=False
+                    )
+                else:
+                    if sender in self.search_anmime_demand_users:
+                        del self.search_anmime_demand_users[sender]
+                    return CommandResult(True, False, [Plain("没有找到番剧")], "sf")
+            except Exception as e:
+                raise e
+        
+    @filter.command("喜报")
+    async def congrats(self, message: AstrMessageEvent):
+        '''喜报生成器'''
         msg = message.message_str.replace("喜报", "").strip()
         for i in range(20, len(msg), 20):
             msg = msg[:i] + "\n" + msg[i:]
@@ -98,7 +140,9 @@ class Main:
         img.save("congrats_result.jpg")
         return CommandResult().file_image("congrats_result.jpg")
     
-    async def uncongrats(self, message: AstrMessageEvent, context: Context):
+    @filter.command("悲报")
+    async def uncongrats(self, message: AstrMessageEvent):
+        '''悲报生成器'''
         msg = message.message_str.replace("悲报", "").strip()
         for i in range(20, len(msg), 20):
             msg = msg[:i] + "\n" + msg[i:]
@@ -128,8 +172,9 @@ class Main:
         img.save("uncongrats_result.jpg")
         return CommandResult().file_image("uncongrats_result.jpg")
     
-    async def get_moe(self, message: AstrMessageEvent, context: Context):
-        # uid = message.message_obj.sender.user_id
+    @filter.command("moe")
+    async def get_moe(self, message: AstrMessageEvent):
+        '''随机动漫图片'''
         shuffle = random.sample(self.moe_urls, len(self.moe_urls))
         for url in shuffle:
             try:
@@ -151,56 +196,26 @@ class Main:
         except Exception as e:
             return CommandResult().error(f"保存图片失败: {e}")
 
-    async def get_search_anime(self, message: AstrMessageEvent, context: Context):
-        message_obj = message.message_obj
-        url = "https://api.trace.moe/search?anilistInfo&url="
-        image_obj = None
-        for i in message_obj.message:
-            if isinstance(i, Image):
-                image_obj = i
-                break
-        if not image_obj:
-            return CommandResult().error("格式：/搜番 [图片]")
-        try:
-            try:
-                # 需要经过url encode
-                image_url = urllib.parse.quote(image_obj.url)
-                url += image_url
-            except BaseException as e:
-                return CommandResult().error(
-                    f"发现不受本插件支持的图片数据：{type(image_obj)}，插件无法解析。"
-                )
+    @filter.command("搜番")
+    async def get_search_anime(self, message: AstrMessageEvent):
+        '''以图搜番'''
+        sender = message.get_sender_id()
+        if sender in self.search_anmime_demand_users:
+            yield message.plain_result("正在等你发图喵，请不要重复发送")
+        self.search_anmime_demand_users[sender] = False
+        yield message.plain_result("请在 30 喵内发送一张图片让我识别喵")
+        await asyncio.sleep(30)
+        if sender in self.search_anmime_demand_users:
+            if self.search_anmime_demand_users[sender]:
+                del self.search_anmime_demand_users[sender]
+                return
+            del self.search_anmime_demand_users[sender]
+            yield message.plain_result("🧐你没有发送图片，搜番请求已取消了喵")
+        
 
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url) as resp:
-                    if resp.status != 200:
-                        return CommandResult().error("请求失败")
-                    data = await resp.json()
-
-            if data["result"] and len(data["result"]) > 0:
-                # 番剧时间转换为x分x秒
-                data["result"][0]["from"] = self.time_convert(data["result"][0]["from"])
-                data["result"][0]["to"] = self.time_convert(data["result"][0]["to"])
-
-                warn = ""
-                if float(data["result"][0]["similarity"]) < 0.8:
-                    warn = "相似度过低，可能不是同一番剧。建议：相同尺寸大小的截图; 去除四周的黑边\n\n"
-
-                return CommandResult(
-                    chain=[
-                        Plain(
-                            f"{warn}番名: {data['result'][0]['anilist']['title']['native']}\n相似度: {data['result'][0]['similarity']}\n剧集: 第{data['result'][0]['episode']}集\n时间: {data['result'][0]['from']} - {data['result'][0]['to']}\n精准空降截图:"
-                        ),
-                        Image.fromURL(data["result"][0]["image"]),
-                    ],
-                    use_t2i_=False
-                )
-            else:
-                return CommandResult(True, False, [Plain("没有找到番剧")], "sf")
-        except Exception as e:
-            raise e
-
-    async def mcs(self, message: AstrMessageEvent, context: Context):
+    @filter.command("mcs")
+    async def mcs(self, message: AstrMessageEvent):
+        '''查mc服务器'''
         message_str = message.message_str
         if message_str == "mcs":
             return CommandResult().error("查 Minecraft 服务器。格式: /mcs [服务器地址]")
@@ -240,8 +255,9 @@ class Main:
             .use_t2i(False)
         )
 
-
-    async def hitokoto(self, message: AstrMessageEvent, context: Context):
+    @filter.command("一言")
+    async def hitokoto(self, message: AstrMessageEvent):
+        '''来一条一言'''
         url = "https://v1.hitokoto.cn"
         async with aiohttp.ClientSession() as session:
             async with session.get(url) as resp:
@@ -259,7 +275,9 @@ class Main:
                 )
             )
 
-    async def what_to_eat(self, message: AstrMessageEvent, context: Context):
+    @filter.command("今天吃什么")
+    async def what_to_eat(self, message: AstrMessageEvent):
+        '''今天吃什么'''
         if "添加" in message.message_str:
             l = message.message_str.split(" ")
             # 今天吃什么 添加 xxx xxx xxx
@@ -286,7 +304,9 @@ class Main:
         ret = f"今天吃 {random.choice(self.what_to_eat_data)}！"
         return CommandResult().message(ret)
 
-    async def epic_free_game(self, message: AstrMessageEvent, context: Context):
+    @filter.command("喜加一")
+    async def epic_free_game(self, message: AstrMessageEvent):
+        '''EPIC 喜加一'''
         url = "https://store-site-backend-static-ipv4.ak.epicgames.com/freeGamesPromotions"
 
         async with aiohttp.ClientSession() as session:
@@ -359,8 +379,10 @@ class Main:
             .use_t2i(False)
         )
 
-    async def good_morning(self, message: AstrMessageEvent, context: Context):
-        """CREDIT: 灵感部分借鉴自：https://github.com/MinatoAquaCrews/nonebot_plugin_morning"""
+    @filter.regex(r"^(早安|晚安)")
+    async def good_morning(self, message: AstrMessageEvent):
+        '''和Bot说早晚安，记录睡眠时间，培养良好作息'''
+        #CREDIT: 灵感部分借鉴自：https://github.com/MinatoAquaCrews/nonebot_plugin_morning
         umo_id = message.unified_msg_origin
         user_id = message.message_obj.sender.user_id
         user_name = message.message_obj.sender.nickname
