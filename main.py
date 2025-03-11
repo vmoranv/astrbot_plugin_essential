@@ -15,6 +15,7 @@ from astrbot.api.star import register, Star
 
 logger = logging.getLogger("astrbot")
 
+
 @register("astrbot_plugin_essential", "Soulter", "", "", "")
 class Main(Star):
     def __init__(self, context: Context) -> None:
@@ -35,7 +36,7 @@ class Main(Star):
         with open(f"data/{PLUGIN_NAME}_data.json", "r", encoding="utf-8") as f:
             self.data = json.loads(f.read())
         self.good_morning_data = self.data.get("good_morning", {})
-        
+
         # moe
         self.moe_urls = [
             "https://t.mwm.moe/pc/",
@@ -43,16 +44,16 @@ class Main(Star):
             "https://www.loliapi.com/acg/",
             "https://www.loliapi.com/acg/pc/",
         ]
-        
+
         self.search_anmime_demand_users = {}
 
     def time_convert(self, t):
         m, s = divmod(t, 60)
         return f"{int(m)}分{int(s)}秒"
-    
+
     @filter.event_message_type(filter.EventMessageType.ALL)
     async def handle_search_anime(self, message: AstrMessageEvent):
-        '''检查是否有搜番请求'''
+        """检查是否有搜番请求"""
         sender = message.get_sender_id()
         if sender in self.search_anmime_demand_users:
             message_obj = message.message_obj
@@ -84,7 +85,9 @@ class Main(Star):
 
                 if data["result"] and len(data["result"]) > 0:
                     # 番剧时间转换为x分x秒
-                    data["result"][0]["from"] = self.time_convert(data["result"][0]["from"])
+                    data["result"][0]["from"] = self.time_convert(
+                        data["result"][0]["from"]
+                    )
                     data["result"][0]["to"] = self.time_convert(data["result"][0]["to"])
 
                     warn = ""
@@ -99,7 +102,7 @@ class Main(Star):
                             ),
                             Image.fromURL(data["result"][0]["image"]),
                         ],
-                        use_t2i_=False
+                        use_t2i_=False,
                     )
                 else:
                     if sender in self.search_anmime_demand_users:
@@ -107,10 +110,10 @@ class Main(Star):
                     return CommandResult(True, False, [Plain("没有找到番剧")], "sf")
             except Exception as e:
                 raise e
-        
+
     @filter.command("喜报")
     async def congrats(self, message: AstrMessageEvent):
-        '''喜报生成器'''
+        """喜报生成器"""
         msg = message.message_str.replace("喜报", "").strip()
         for i in range(20, len(msg), 20):
             msg = msg[:i] + "\n" + msg[i:]
@@ -139,10 +142,10 @@ class Main(Star):
 
         img.save("congrats_result.jpg")
         return CommandResult().file_image("congrats_result.jpg")
-    
+
     @filter.command("悲报")
     async def uncongrats(self, message: AstrMessageEvent):
-        '''悲报生成器'''
+        """悲报生成器"""
         msg = message.message_str.replace("悲报", "").strip()
         for i in range(20, len(msg), 20):
             msg = msg[:i] + "\n" + msg[i:]
@@ -171,10 +174,10 @@ class Main(Star):
 
         img.save("uncongrats_result.jpg")
         return CommandResult().file_image("uncongrats_result.jpg")
-    
+
     @filter.command("moe")
     async def get_moe(self, message: AstrMessageEvent):
-        '''随机动漫图片'''
+        """随机动漫图片"""
         shuffle = random.sample(self.moe_urls, len(self.moe_urls))
         for url in shuffle:
             try:
@@ -198,7 +201,7 @@ class Main(Star):
 
     @filter.command("搜番")
     async def get_search_anime(self, message: AstrMessageEvent):
-        '''以图搜番'''
+        """以图搜番"""
         sender = message.get_sender_id()
         if sender in self.search_anmime_demand_users:
             yield message.plain_result("正在等你发图喵，请不要重复发送")
@@ -211,11 +214,10 @@ class Main(Star):
                 return
             del self.search_anmime_demand_users[sender]
             yield message.plain_result("🧐你没有发送图片，搜番请求已取消了喵")
-        
 
     @filter.command("mcs")
     async def mcs(self, message: AstrMessageEvent):
-        '''查mc服务器'''
+        """查mc服务器"""
         message_str = message.message_str
         if message_str == "mcs":
             return CommandResult().error("查 Minecraft 服务器。格式: /mcs [服务器地址]")
@@ -230,8 +232,16 @@ class Main(Star):
 
         # result = await context.image_renderer.render_custom_template(self.mc_html_tmpl, data, return_url=True)
         motd = "查询失败"
-        if "motd" in data and isinstance(data["motd"], dict) and isinstance(data["motd"].get("clean"), list):
-            motd_lines = [i.strip() for i in data["motd"]["clean"] if isinstance(i, str) and i.strip()]
+        if (
+            "motd" in data
+            and isinstance(data["motd"], dict)
+            and isinstance(data["motd"].get("clean"), list)
+        ):
+            motd_lines = [
+                i.strip()
+                for i in data["motd"]["clean"]
+                if isinstance(i, str) and i.strip()
+            ]
             motd = "\n".join(motd_lines) if motd_lines else "查询失败"
 
         players = "查询失败"
@@ -239,25 +249,40 @@ class Main(Star):
         if "error" in data:
             return CommandResult().error(f"查询失败: {data['error']}")
 
+        name_list = []
+
         if "players" in data:
             players = f"{data['players']['online']}/{data['players']['max']}"
 
-        if "version" in data:
-            version = str(data['version'])
+            if "list" in data["players"]:
+                name_list = data["players"]["list"]
 
-        return (
-            CommandResult()
-            .message(f"""【查询结果】
-        服务器IP: {ip}
-        在线玩家: {players}
-        版本: {version}
-        MOTD: {motd}""")
-            .use_t2i(False)
+        if "version" in data:
+            version = str(data["version"])
+
+        status = "🟢" if data["online"] else "🔴"
+
+        name_list_str = ""
+        if name_list:
+            name_list_str = "\n".join(name_list)
+        if not name_list_str:
+            name_list_str = "无玩家在线"
+
+        result_text = (
+            "【查询结果】\n"
+            f"状态: {status}\n"
+            f"服务器IP: {ip}\n"
+            f"版本: {version}\n"
+            f"MOTD: {motd}"
+            f"玩家人数: {players}\n"
+            f"在线玩家: \n{name_list_str}"
         )
+
+        return CommandResult().message(result_text).use_t2i(False)
 
     @filter.command("一言")
     async def hitokoto(self, message: AstrMessageEvent):
-        '''来一条一言'''
+        """来一条一言"""
         url = "https://v1.hitokoto.cn"
         async with aiohttp.ClientSession() as session:
             async with session.get(url) as resp:
@@ -277,7 +302,7 @@ class Main(Star):
 
     @filter.command("今天吃什么")
     async def what_to_eat(self, message: AstrMessageEvent):
-        '''今天吃什么'''
+        """今天吃什么"""
         if "添加" in message.message_str:
             l = message.message_str.split(" ")
             # 今天吃什么 添加 xxx xxx xxx
@@ -306,7 +331,7 @@ class Main(Star):
 
     @filter.command("喜加一")
     async def epic_free_game(self, message: AstrMessageEvent):
-        '''EPIC 喜加一'''
+        """EPIC 喜加一"""
         url = "https://store-site-backend-static-ipv4.ak.epicgames.com/freeGamesPromotions"
 
         async with aiohttp.ClientSession() as session:
@@ -381,8 +406,8 @@ class Main(Star):
 
     @filter.regex(r"^(早安|晚安)")
     async def good_morning(self, message: AstrMessageEvent):
-        '''和Bot说早晚安，记录睡眠时间，培养良好作息'''
-        #CREDIT: 灵感部分借鉴自：https://github.com/MinatoAquaCrews/nonebot_plugin_morning
+        """和Bot说早晚安，记录睡眠时间，培养良好作息"""
+        # CREDIT: 灵感部分借鉴自：https://github.com/MinatoAquaCrews/nonebot_plugin_morning
         umo_id = message.unified_msg_origin
         user_id = message.message_obj.sender.user_id
         user_name = message.message_obj.sender.nickname
