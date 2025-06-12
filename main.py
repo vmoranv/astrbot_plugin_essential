@@ -46,10 +46,28 @@ class Main(Star):
         ]
 
         self.search_anmime_demand_users = {}
+        self.daily_sleep_cache = {}
 
     def time_convert(self, t):
         m, s = divmod(t, 60)
         return f"{int(m)}分{int(s)}秒"
+    
+    def get_cached_sleep_count(self, umo_id: str, date_str: str) -> int:
+        """获取缓存的睡觉人数"""
+        if umo_id not in self.daily_sleep_cache:
+            self.daily_sleep_cache[umo_id] = {}
+        return self.daily_sleep_cache[umo_id].get(date_str, -1)
+
+    def update_sleep_cache(self, umo_id: str, date_str: str, count: int):
+        """更新睡觉人数缓存"""
+        if umo_id not in self.daily_sleep_cache:
+            self.daily_sleep_cache[umo_id] = {}
+        self.daily_sleep_cache[umo_id][date_str] = count
+
+    def invalidate_sleep_cache(self, umo_id: str, date_str: str):
+        """使缓存失效"""
+        if umo_id in self.daily_sleep_cache and date_str in self.daily_sleep_cache[umo_id]:
+            del self.daily_sleep_cache[umo_id][date_str]
 
     @filter.event_message_type(filter.EventMessageType.ALL)
     async def handle_search_anime(self, message: AstrMessageEvent):
@@ -411,7 +429,7 @@ class Main(Star):
         umo_id = message.unified_msg_origin
         user_id = message.message_obj.sender.user_id
         user_name = message.message_obj.sender.nickname
-        curr_utc8 = datetime.datetime.utcnow() + datetime.timedelta(hours=8)
+        curr_utc8 = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=8)))
         curr_human = curr_utc8.strftime("%Y-%m-%d %H:%M:%S")
 
         is_night = "晚安" in message.message_str
@@ -443,22 +461,34 @@ class Main(Star):
             f.write(json.dumps(self.good_morning_data, ensure_ascii=False, indent=2))
 
         # 根据 day 判断今天是本群第几个睡觉的
-        # TODO: 此处可以缓存
         curr_day: int = curr_utc8.day
-        curr_day_sleeping = 0
-        for v in umo.values():
-            if v["daily"]["night_time"] and not v["daily"]["morning_time"]:
-                # he/she is sleeping
-                user_day = datetime.datetime.strptime(
-                    v["daily"]["night_time"], "%Y-%m-%d %H:%M:%S"
-                ).day
-                if user_day == curr_day:
-                    # 今天睡觉的人数
-                    curr_day_sleeping += 1
+        curr_date_str = curr_utc8.strftime("%Y-%m-%d")
+
+        # 如果当前用户刚说晚安，需要使缓存失效
+        if is_night:
+            self.invalidate_sleep_cache(umo_id, curr_date_str)
+
+        # 尝试从缓存获取
+        curr_day_sleeping = self.get_cached_sleep_count(umo_id, curr_date_str)
+
+        # 缓存未命中，重新计算
+        if curr_day_sleeping == -1:
+            curr_day_sleeping = 0
+            for v in umo.values():
+                if v["daily"]["night_time"] and not v["daily"]["morning_time"]:
+                    # he/she is sleeping
+                    user_day = datetime.datetime.strptime(
+                        v["daily"]["night_time"], "%Y-%m-%d %H:%M:%S"
+                    ).day
+                    if user_day == curr_day:
+                        # 今天睡觉的人数
+                        curr_day_sleeping += 1
+            
+            # 更新缓存
+            self.update_sleep_cache(umo_id, curr_date_str, curr_day_sleeping)
 
         if not is_night:
             # 计算睡眠时间: xx小时xx分
-            # 此处可以联动 TODO
             sleep_duration_human = ""
             if user["daily"]["night_time"]:
                 night_time = datetime.datetime.strptime(
@@ -475,16 +505,15 @@ class Main(Star):
             return (
                 CommandResult()
                 .message(
-                    f"早安喵，{user_name}！\n现在是 {curr_human}，昨晚你睡了 {sleep_duration_human}。"
+                    f"早上好喵，{user_name}！\n现在是 {curr_human}，昨晚你睡了 {sleep_duration_human}。"
                 )
                 .use_t2i(False)
             )
         else:
-            # 此处可以联动 TODO
             return (
                 CommandResult()
                 .message(
-                    f"晚安喵，{user_name}！\n现在是 {curr_human}，你是本群今天第 {curr_day_sleeping} 个睡觉的。"
+                    f"快睡觉喵，{user_name}！\n现在是 {curr_human}，你是本群今天第 {curr_day_sleeping} 个睡觉的。"
                 )
                 .use_t2i(False)
             )
